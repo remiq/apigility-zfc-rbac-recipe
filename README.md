@@ -344,12 +344,12 @@ class FooResourceFactory
 Use authorization service in resource ie. /modules/YourApp/V1/Rest/Foo/FooResource.php.
 
 ```php
-namespace Pds\V1\Rest\Plugin;
+namespace YourApp\V1\Rest\Foo;
 
 use ZF\ApiProblem\ApiProblem;
 use ZfcRbac\Service\AuthorizationService;
 
-class PluginResource extends AbstractResourceListener
+class FooResource extends AbstractResourceListener
 {
     /** @var AuthorizationService */
     protected $authorizationService;
