@@ -13,14 +13,14 @@ You have created API application with Apigility, integrated OAuth2 authenticatio
 
 This setup assumes that your module is called "YourApp". Please change accordingly.
 
-1. Install ZfcRbac module.
+Install ZfcRbac module.
 This downloads module and copies it into /vendor/zf-commons/zfc-rbac/
  
 ```sh
 $ php composer.phar require zf-commons/zfc-rbac:~2.4
 ```
 
-2. Add module to /config/application.config.php
+Add module to /config/application.config.php.
 This enables module to be used by ZF2.
 
 ```php
@@ -33,10 +33,10 @@ return array(
 );
 ```
 
-3. Copy /vendor/zf-commons/zfc-rbac/config/zfc_rbac.global.php.dist to /config/autoload/zfc_rbac.global.php
+Copy /vendor/zf-commons/zfc-rbac/config/zfc_rbac.global.php.dist to /config/autoload/zfc_rbac.global.php.
 This will be the base of configuration you will use in next step.
 
-4. Set following values in /config/autoload/zfc_rbac.global.php
+Set following values in /config/autoload/zfc_rbac.global.php.
 This will enable authorization only in places specified by code. If you want to block whole controller, read about guards.
 
 ```php
@@ -50,7 +50,7 @@ return array(
 );
 ```
 
-5. Set role tree in /config/autoload/zfc_rbac.global.php (same file, update it)
+Set role tree in /config/autoload/zfc_rbac.global.php (same file, update it).
 This defines that your application have three roles: admin, user and guest.
 User have permissions "canDoFoo", "canDoBar". 
 Admin have all user's permission ("canDoFoo", "canDoBar") and their own "canDoBaz".
@@ -80,7 +80,7 @@ return array(
     )
 );
 ```
-6. In /module/YourApp/config/module.config.php add following:
+In /module/YourApp/config/module.config.php add following:
 
 ```php
 return array(
@@ -92,7 +92,7 @@ return array(
 );
 ```
 
-7. Create /module/YourApp/Rbac/IdentityProviderFactory.php
+Create /module/YourApp/Rbac/IdentityProviderFactory.php.
 This will create IdentityProvider service used by ZfcRbac and include OAuth2 identity resolved by token. 
 
 ```php
@@ -118,7 +118,7 @@ class IdentityProviderFactory
 }
 ```
 
-8. Create /module/YourApp/Rbac/IdentityProvider.php
+Create /module/YourApp/Rbac/IdentityProvider.php.
 GetIdentity function will be executed by ZfcRbac. Since it wants something different than ZF\MvcAuth\Identity, 
 we have to translate. We take existing Identity, get userId (weirdly called getRoleId), then we check OAuthUserEntity
 where we store users and their roles. Then we return YourApp\Rbac\Identity with a role.
@@ -188,7 +188,7 @@ class IdentityProvider implements IdentityProviderInterface
 
 ```
 
-9. Create /module/YourApp/Rbac/Identity.php
+Create /module/YourApp/Rbac/Identity.php.
 This creates Identity class used by ZfcRbac.
 
 ```php
@@ -228,7 +228,7 @@ class Identity implements IdentityInterface
 }
 ```
 
-10. Update your OAuth2 users table (oauth_users) and entity (YourApp\OAuth\OAuthUserEntity)
+.Update your OAuth2 users table (oauth_users) and entity (YourApp\OAuth\OAuthUserEntity).
 Add `role` VARCHAR(20) field to oauth_users table.
 Add getRole function to OAuthUserEntity (or whatever you called it).
 We also store role/permission constants here.
@@ -313,7 +313,7 @@ class OAuthUserEntity
 }
 ```
 
-11. Add service in resource factory ie. /modules/YourApp/V1/Rest/Foo/FooResourceFactory.php
+Add service in resource factory ie. /modules/YourApp/V1/Rest/Foo/FooResourceFactory.php.
 
 ```php
 namespace YourApp\V1\Rest\Foo;
@@ -341,7 +341,7 @@ class FooResourceFactory
 }
 ```
 
-12. Use authorization service in resource ie. /modules/YourApp/V1/Rest/Foo/FooResource.php
+Use authorization service in resource ie. /modules/YourApp/V1/Rest/Foo/FooResource.php.
 
 ```php
 namespace Pds\V1\Rest\Plugin;
