@@ -11,7 +11,14 @@ You have created API application with Apigility, integrated OAuth2 authenticatio
 
 ## How it works?
 
+We use zf-mvc-auth to handle OAuth2 authentication. We inject our listener to post authentication event, so
+after successful authentication we query DB and get user's role instead of ID. 
 
+In ZfcRbac configuration we point to our IdentityProvider that will translate zf-mvc-auth Identity into 
+ZfcRbac Identity.
+
+We add alias `ZF\MvcAuth\Authorization\AuthorizationInterface` to our Authorization, so it's method isAuthorized
+is called instead of Acl.
 
 ## Setup
 
@@ -374,7 +381,7 @@ class AuthenticationListener
         {
             $userId = $identity->getRoleId();
             /** @var OAuthUserEntity $oauthUserEntity */
-            $oauthUserEntity = $this->entityManager->find('Pds\OAuth\OAuthUserEntity', $userId);
+            $oauthUserEntity = $this->entityManager->find('YourApp\OAuth\OAuthUserEntity', $userId);
 
             $identity->setName($oauthUserEntity->getRole());
         }
