@@ -9,6 +9,10 @@ You have created API application with Apigility, integrated OAuth2 authenticatio
 - Doctrine ORM
 - Working authentication process using Doctrine ORM
 
+## How it works?
+
+
+
 ## Setup
 
 This setup assumes that your module is called "YourApp". Please change accordingly.
@@ -80,13 +84,48 @@ return array(
     )
 );
 ```
+
+Set REST guard in /config/autoload/zfc_rbac.global.php (same file, update it).
+It is similar to zf-mvc-auth/authorization config option, instead of boolean options (true: require authorization,
+false: allow guest) it uses boolean+array (true: always allow, false: never allow, array: allow only those with selected
+permission).
+
+```php
+    'rest_guard' => [
+        'YourApp\\V1\\Rest\\Foo\\Controller' => [
+            'entity' => [
+                'GET' => true,              // everyone can use GET /foo/:id
+                'POST' => false,            // nobody can use POST /foo/:id
+                'PATCH' => ['canDoFoo'],    // only admin or user can use PATCH /foo/:id
+                'PUT' => ['canDoFoo', 'canDoBar'], // only roles that have BOTH permissions (admin/user) can use PUT /foo/:id 
+                'DELETE' => ['canDoFoo'],
+            ],
+            'collection' => [
+                'GET' => true,          // everyone can use GET /foo
+                'POST' => ['canDoFoo'], // only admin or user can use POST /foo 
+                'PATCH' => false,       // nobody can use PATCH /foo
+                'PUT' => false,
+                'DELETE' => ['canDoBaz'], // only admin can use DELETE /foo
+            ],
+        ],
+    ],
+```
+
+Remove 'zf-mvc-auth/authorization' branch from /module/YourApp/config/module.config.php - it's no longer used.
+
+
 In /module/YourApp/config/module.config.php add following:
 
 ```php
 return array(
     'service_manager' => array(
+        'aliases' => array(
+            'ZF\MvcAuth\Authorization\AuthorizationInterface' => 'YourApp\\Rbac\\Authorization',
+        ),
         'factories' => array(
             'YourApp\\Rbac\\IdentityProvider'   =>  'YourApp\\Rbac\\IdentityProviderFactory',
+            'YourApp\\Rbac\\AuthenticationListener'  =>  'YourApp\\Rbac\\AuthenticationListenerFactory',
+            'YourApp\\Rbac\\Authorization'  =>  'YourApp\\Rbac\\AuthorizationFactory',
         ),
     ),
 );
@@ -104,15 +143,11 @@ class IdentityProviderFactory
 {
     public function __invoke(ServiceManager $services)
     {
-        /** @var \Doctrine\ORM\EntityManager $entityManager */
-        $entityManager = $services->get('Doctrine\ORM\EntityManager');
-        /** @var \ZF\MvcAuth\Identity\IdentityInterface $identity */
-        $identity = $services->get('api-identity');
+        /** @var \Zend\Authentication\AuthenticationService $authenticationProvider */
+        $authenticationProvider = $services->get('authentication');
 
         $identityProvider = new IdentityProvider();
-        $identityProvider
-            ->setEntityManager($entityManager)
-            ->setIdentity($identity);
+        $identityProvider->setAuthenticationProvider($authenticationProvider);
         return $identityProvider;
     }
 }
@@ -126,9 +161,8 @@ where we store users and their roles. Then we return YourApp\Rbac\Identity with 
 ```php
 namespace YourApp\Rbac;
 
-use Doctrine\ORM\EntityManager;
-use YourApp\OAuth\OAuthUserEntity;
 use ZfcRbac\Identity\IdentityProviderInterface;
+use Zend\Authentication\AuthenticationService;
 
 /**
  * Class IdentityProvider provides Identity object required by RBAC.
@@ -138,23 +172,15 @@ use ZfcRbac\Identity\IdentityProviderInterface;
  */
 class IdentityProvider implements IdentityProviderInterface
 {
-    /** @var  EntityManager */
-    protected $entityManager;
+    /** @var Identity $rbacIdentity */
+    private $rbacIdentity = null;
 
-    /** @var \ZF\MvcAuth\Identity\IdentityInterface $identity */
-    private $identity;
+    /* @var \Zend\Authentication\AuthenticationService $authenticationProvider */
+    private $authenticationProvider;
 
-
-    public function setEntityManager(EntityManager $entityManager)
+    public function setAuthenticationProvider(AuthenticationService $authenticationProvider)
     {
-        $this->entityManager = $entityManager;
-        return $this;
-    }
-
-    public function setIdentity($identity)
-    {
-        /** @var \ZF\MvcAuth\Identity\IdentityInterface $identity */
-        $this->identity = $identity;
+        $this->authenticationProvider = $authenticationProvider;
         return $this;
     }
 
@@ -162,27 +188,20 @@ class IdentityProvider implements IdentityProviderInterface
      * Checks if user is authenticated. If yes, checks db for user's role and returns Identity.
      *
      * @return Identity
-     * @throws \Doctrine\ORM\ORMException
-     * @throws \Doctrine\ORM\OptimisticLockException
-     * @throws \Doctrine\ORM\TransactionRequiredException
      */
     public function getIdentity()
     {
-        $identity = new Identity();
+        if ($this->rbacIdentity === null)
+        {
+            $this->rbacIdentity = new Identity();
 
-        $userId = $this->identity->getRoleId();
-        if (!is_numeric($userId)) {
-            return $identity;
+            $mvcIdentity = $this->authenticationProvider->getIdentity();
+            $role = $mvcIdentity->getRoleId();
+            $this->rbacIdentity
+                ->setRoles($role);
         }
-        $oauthUserEntity = $this->entityManager->find('YourApp\OAuth\OAuthUserEntity', $userId);
-        if (!$oauthUserEntity) {
-            return $identity;
-        }
-        /** @var OAuthUserEntity $oauthUserEntity */
 
-        $identity->setUserId($userId)
-            ->setRoles($oauthUserEntity->getRole());
-        return $identity;
+        return $this->rbacIdentity;
     }
 }
 
@@ -198,14 +217,7 @@ use ZfcRbac\Identity\IdentityInterface;
 
 class Identity implements IdentityInterface
 {
-    private $userId = 0;
     private $roles = array();
-
-    public function setUserId($userId)
-    {
-        $this->userId = $userId;
-        return $this;
-    }
 
     public function setRoles($roles)
     {
@@ -312,6 +324,170 @@ class OAuthUserEntity
     }
 }
 ```
+
+Create /module/YourApp/Rbac/AuthenticationListenerFactory.php.
+This will inject Doctrine's entity manager in our listener.
+
+```php
+namespace YourApp\Rbac;
+
+use \Zend\ServiceManager\ServiceManager;
+
+class AuthenticationListenerFactory
+{
+    public function __invoke(ServiceManager $services)
+    {
+        /** @var \Doctrine\ORM\EntityManager $entityManager */
+        $entityManager = $services->get('Doctrine\ORM\EntityManager');
+        $authenticationListener = new AuthenticationListener();
+        $authenticationListener->setEntityManager($entityManager);
+        return $authenticationListener;
+    }
+}
+```
+
+Create /module/YourApp/Rbac/AuthenticationListener.php.
+This will overwrite user's ID with name of their role.
+
+```php
+namespace YourApp\Rbac;
+
+use ZF\MvcAuth\MvcAuthEvent;
+use ZF\MvcAuth\Identity\AuthenticatedIdentity;
+use Doctrine\ORM\EntityManager;
+use YourApp\OAuth\OAuthUserEntity;
+
+class AuthenticationListener
+{
+    /** @var  EntityManager */
+    private $entityManager;
+
+    public function setEntityManager(EntityManager $entityManager)
+    {
+        $this->entityManager = $entityManager;
+    }
+
+    public function __invoke(MvcAuthEvent $mvcAuthEvent)
+    {
+        $identity = $mvcAuthEvent->getIdentity();
+        if ($identity instanceof AuthenticatedIdentity)
+        {
+            $userId = $identity->getRoleId();
+            /** @var OAuthUserEntity $oauthUserEntity */
+            $oauthUserEntity = $this->entityManager->find('Pds\OAuth\OAuthUserEntity', $userId);
+
+            $identity->setName($oauthUserEntity->getRole());
+        }
+        return $identity;
+
+    }
+}
+
+```
+
+Add post authentication event in bootstrap in /module/YourApp/Module.php.
+
+```php
+class Module implements ApigilityProviderInterface
+{
+    public function onBootstrap(EventInterface $e)
+    {
+        /** @var Application $application */
+        $application = $e->getParam('application');
+        $eventManager = $application->getEventManager();
+        $moduleRouteListener = new ModuleRouteListener();
+        $moduleRouteListener->attach($eventManager);
+        $eventManager->attach(MvcAuthEvent::EVENT_AUTHENTICATION_POST, $sm->get('YourApp\\Rbac\\AuthenticationListener'), 100);
+    }
+}
+```
+
+Create /modules/YourApp/Rbac/AuthorizationFactory.php
+This injects ZfcRbac into our authorization and reads it's config.
+
+```php
+namespace YourApp\Rbac;
+
+use \Zend\ServiceManager\ServiceManager;
+
+class AuthorizationFactory
+{
+    public function __invoke(ServiceManager $services)
+    {
+        /** @var \ZfcRbac\Service\AuthorizationService $authorizationService */
+        $authorizationService = $services->get('ZfcRbac\Service\AuthorizationService');
+
+        $config = $services->get('config');
+        $rbacConfig = $config['zfc_rbac'];
+        $authorization = new Authorization();
+        $authorization->setConfig($rbacConfig);
+        $authorization->setAuthorizationService($authorizationService);
+        return $authorization;
+    }
+}
+
+```
+
+Create /modules/YourApp/Rbac/Authorization.php
+This enables REST guards.
+
+```php
+namespace YourApp\Rbac;
+
+use ZF\MvcAuth\Authorization\AuthorizationInterface;
+use ZF\MvcAuth\Identity\IdentityInterface;
+use ZfcRbac\Service\AuthorizationService;
+
+class Authorization implements AuthorizationInterface
+{
+    /** @var  AuthorizationService */
+    private $authorizationService;
+    private $config = [];
+
+    public function setAuthorizationService(AuthorizationService $authorizationService)
+    {
+        $this->authorizationService = $authorizationService;
+    }
+
+    public function setConfig(array $config)
+    {
+        $this->config = $config;
+    }
+
+
+
+    /**
+     * Whether or not the given identity has the given privilege on the given resource.
+     *
+     * @param IdentityInterface $identity
+     * @param mixed $resource
+     * @param mixed $privilege
+     * @return bool
+     */
+    public function isAuthorized(IdentityInterface $identity, $resource, $privilege)
+    {
+        $restGuard = $this->config['rest_guard'];
+        list($controller, $group) = explode('::', $resource);
+        if (isset($restGuard[$controller][$group][$privilege])) {
+            $result = $restGuard[$controller][$group][$privilege];
+            if (is_array($result)) {
+                $and = true;
+                foreach ($result as $r) {
+                    $and = $and && $this->authorizationService->isGranted($r);
+                }
+                $result = $and;
+            }
+            return $result;
+        }
+
+        return true;
+    }
+
+}
+```
+
+# If you want to check permissions in resource...
+
 
 Add service in resource factory ie. /modules/YourApp/V1/Rest/Foo/FooResourceFactory.php.
 
