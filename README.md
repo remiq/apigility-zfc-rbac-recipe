@@ -445,6 +445,9 @@ use ZF\MvcAuth\Authorization\AuthorizationInterface;
 use ZF\MvcAuth\Identity\IdentityInterface;
 use ZfcRbac\Service\AuthorizationService;
 
+use ZF\ApiProblem\ApiProblem;
+use ZF\ApiProblem\ApiProblemResponse;
+
 class Authorization implements AuthorizationInterface
 {
     /** @var  AuthorizationService */
@@ -485,6 +488,8 @@ class Authorization implements AuthorizationInterface
                 $result = $and;
             }
             return $result;
+        } else {
+            return new ApiProblemResponse(new ApiProblem(403, 'Acesso restrito'));
         }
 
         return true;
