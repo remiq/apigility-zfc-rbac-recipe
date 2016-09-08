@@ -395,16 +395,20 @@ class AuthenticationListener
 Add post authentication event in bootstrap in /module/YourApp/Module.php.
 
 ```php
+use Zend\Mvc\ModuleRouteListener;
+use ZF\MvcAuth\MvcAuthEvent;
+
 class Module implements ApigilityProviderInterface
 {
-    public function onBootstrap(EventInterface $e)
+    public function onBootstrap(\Zend\Mvc\MvcEvent $e)
     {
         /** @var Application $application */
         $application = $e->getParam('application');
         $eventManager = $application->getEventManager();
+        $serviceManager = $e->getApplication()->getServiceManager();
         $moduleRouteListener = new ModuleRouteListener();
         $moduleRouteListener->attach($eventManager);
-        $eventManager->attach(MvcAuthEvent::EVENT_AUTHENTICATION_POST, $sm->get('YourApp\\Rbac\\AuthenticationListener'), 100);
+        $eventManager->attach(MvcAuthEvent::EVENT_AUTHENTICATION_POST, $serviceManager->get('YourApp\\Rbac\\AuthenticationListener'), 100);
     }
 }
 ```
